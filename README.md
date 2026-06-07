@@ -5,7 +5,7 @@ Accessing NEX-GDDP downscaled and bias-corrected climate projections often invol
 
 # GULP — GDDP Unified Loader and Processor
 
-![GULP Logo](GULP/assets/gulp.png)
+<img src="GULP/assets/gulp.png" alt="GULP Logo" height="100">
 
 > A dark, modern GUI tool for browsing and bulk-downloading
 > NASA NEX-GDDP-CMIP6 climate datasets from the public AWS S3 bucket.
