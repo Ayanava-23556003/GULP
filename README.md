@@ -7,7 +7,7 @@ Accessing NEX-GDDP downscaled and bias-corrected climate projections often invol
 
 <img src="GULP/assets/gulp.png" alt="GULP Logo" height="300">
 
-> A dark, modern GUI tool for browsing and bulk-downloading
+> A eye-friendly, modern GUI tool for browsing and bulk-downloading
 > NASA NEX-GDDP-CMIP6 climate datasets from the public AWS S3 bucket.
 
 ---
@@ -38,7 +38,7 @@ download any subset of these datasets in parallel.
 
 | Feature | Detail |
 |---|---|
-| **Modern dark GUI** | PyQt6 — three-step sidebar workflow |
+| **Modern eye-friendly GUI** | PyQt6 — three-step sidebar workflow |
 | **Model browser** | Lists all available CMIP6 models from S3 |
 | **Live scan log** | Real-time activity log while scanning |
 | **Filter panel** | Checkboxes for scenario / variable / version |
