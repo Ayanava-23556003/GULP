@@ -1,0 +1,8 @@
+cff-version: 1.2.0
+title: GULP
+message: "If you use this software, please cite it."
+authors:
+  - family-names: Poddar
+    given-names: Ayanava
+version: 1.0.0
+license: MIT
