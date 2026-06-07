@@ -3,7 +3,7 @@ Accessing NEX-GDDP downscaled and bias-corrected climate projections often invol
 
 # DEVELOPMENT UNDER PROCESS
 
-# GULP — GeoData Universal Loader for Precipitation
+# GULP — GDDP Unified Loader and Processor
 
 ![GULP Logo](GULP/assets/gulp.png)
 
