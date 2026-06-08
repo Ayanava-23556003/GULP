@@ -1,5 +1,5 @@
 """
-GULP — GeoData Universal Loader for Precipitation
+GULP — GDDP Unified Loader & Processor
 PyQt6 GUI  |  v1.0.0  — Redesigned
 """
 
@@ -34,12 +34,12 @@ from PyQt6.QtWidgets import (
 # ─────────────────────────────────────────────
 #  S3 / Backend constants
 # ─────────────────────────────────────────────
-BUCKET       = "nex-gddp-cmip6"
-BASE_URL     = f"https://{BUCKET}.s3.us-west-2.amazonaws.com"
-ROOT_PREFIX  = "NEX-GDDP-CMIP6/"
-XML_NS       = "http://s3.amazonaws.com/doc/2006-03-01/"
-DEFAULT_DIR  = str(Path.home() / "NEX_GDDP")
-APP_VERSION  = "1.0.0"
+BUCKET = "nex-gddp-cmip6"
+BASE_URL = f"https://{BUCKET}.s3.us-west-2.amazonaws.com"
+ROOT_PREFIX = "NEX-GDDP-CMIP6/"
+XML_NS = "http://s3.amazonaws.com/doc/2006-03-01/"
+DEFAULT_DIR = str(Path.home() / "NEX_GDDP")
+APP_VERSION = "1.0.0"
 
 # ─────────────────────────────────────────────
 #  Palette — Light orange with dark contrasting borders
@@ -356,6 +356,8 @@ QGroupBox::title {{
 # ─────────────────────────────────────────────
 #  S3 backend (pure functions, no Qt)
 # ─────────────────────────────────────────────
+
+
 def s3_list(prefix, delimiter="/"):
     common_prefixes, object_keys = [], []
     continuation = None
@@ -385,21 +387,26 @@ def s3_list(prefix, delimiter="/"):
             break
     return common_prefixes, object_keys
 
+
 def get_models():
     prefixes, _ = s3_list(ROOT_PREFIX)
     return sorted({p.rstrip("/").split("/")[-1] for p in prefixes if p.rstrip("/").split("/")[-1]})
+
 
 def list_folders(prefix):
     prefixes, _ = s3_list(prefix)
     return sorted({p.rstrip("/").split("/")[-1] for p in prefixes if p.rstrip("/").split("/")[-1]})
 
+
 def list_nc_files(prefix):
     _, keys = s3_list(prefix)
     return [k.split("/")[-1] for k in keys if k.endswith(".nc")]
 
+
 def extract_version(fname):
     m = re.search(r"_v(\d+\.\d+)\.nc$", fname)
     return ("v" + m.group(1)) if m else "base"
+
 
 def scan_model(model, progress_cb=None):
     result, model_prefix = [], f"{ROOT_PREFIX}{model}/"
@@ -420,6 +427,7 @@ def scan_model(model, progress_cb=None):
             progress_cb(si + 1, len(scenarios))
     return result
 
+
 def collect_files(selection):
     files = []
     for item in selection:
@@ -431,6 +439,7 @@ def collect_files(selection):
                               "model": item["model"], "scenario": item["scenario"],
                               "variable": item["variable"], "file": f})
     return files
+
 
 def download_file(url, out_file):
     if os.path.exists(out_file):
@@ -450,15 +459,18 @@ def download_file(url, out_file):
 # ─────────────────────────────────────────────
 #  Worker threads
 # ─────────────────────────────────────────────
+
+
 class ModelLoaderThread(QThread):
-    finished   = pyqtSignal(list)
-    error      = pyqtSignal(str)
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
 
     def run(self):
         try:
             models = get_models()
             if not models:
-                self.error.emit("Could not retrieve model list.\nCheck your network connection.")
+                self.error.emit(
+                    "Could not retrieve model list.\nCheck your network connection.")
             else:
                 self.finished.emit(models)
         except Exception as e:
@@ -466,10 +478,10 @@ class ModelLoaderThread(QThread):
 
 
 class ScanThread(QThread):
-    log        = pyqtSignal(str)
-    progress   = pyqtSignal(int, int)
-    finished   = pyqtSignal(list)
-    error      = pyqtSignal(str)
+    log = pyqtSignal(str)
+    progress = pyqtSignal(int, int)
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
 
     def __init__(self, models):
         super().__init__()
@@ -480,6 +492,7 @@ class ScanThread(QThread):
         try:
             for i, model in enumerate(self.models):
                 self.log.emit(f"Scanning  {model} ...")
+
                 def cb(done, total, m=model):
                     self.log.emit(f"  {m}  —  scenario {done}/{total}")
                 result = scan_model(model, cb)
@@ -492,15 +505,15 @@ class ScanThread(QThread):
 
 
 class DownloadThread(QThread):
-    file_done  = pyqtSignal(int, int, bool, str)
-    log        = pyqtSignal(str)
-    finished   = pyqtSignal(int, int)
+    file_done = pyqtSignal(int, int, bool, str)
+    log = pyqtSignal(str)
+    finished = pyqtSignal(int, int)
 
     def __init__(self, tasks, max_workers=16):
         super().__init__()
-        self.tasks       = tasks
+        self.tasks = tasks
         self.max_workers = max_workers
-        self._stop       = False
+        self._stop = False
 
     def stop(self):
         self._stop = True
@@ -527,10 +540,12 @@ class DownloadThread(QThread):
                 self.file_done.emit(done, total, success, fname)
         self.finished.emit(ok_count, failed_count)
 
+
 # ─────────────────────────────────────────────
 #  Table model for combinations
 # ─────────────────────────────────────────────
 COLS = ["Model", "Scenario", "Realization", "Variable", "Version"]
+
 
 class CombinationModel(QAbstractTableModel):
     def __init__(self, data=None):
@@ -546,7 +561,8 @@ class CombinationModel(QAbstractTableModel):
         return None
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid(): return None
+        if not index.isValid():
+            return None
         row = self._data[index.row()]
         keys = ["model", "scenario", "realization", "variable", "version"]
         if role == Qt.ItemDataRole.DisplayRole:
@@ -554,8 +570,10 @@ class CombinationModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.ForegroundRole:
             if index.column() == 1:
                 s = row["scenario"]
-                if "historical" in s: return QColor(C["green"])
-                if "ssp" in s:        return QColor(C["yellow"])
+                if "historical" in s:
+                    return QColor(C["green"])
+                if "ssp" in s:
+                    return QColor(C["yellow"])
             if index.column() == 4:
                 return QColor(C["text2"])
         return None
@@ -570,32 +588,44 @@ class CombinationModel(QAbstractTableModel):
 # ─────────────────────────────────────────────
 #  Reusable UI atoms
 # ─────────────────────────────────────────────
+
+
 def label(text, color=None, size=None, bold=False):
     l = QLabel(text)
     style = ""
-    if color: style += f"color: {color};"
-    if size:  style += f"font-size: {size}px;"
-    if bold:  style += "font-weight: bold;"
-    if style: l.setStyleSheet(style)
+    if color:
+        style += f"color: {color};"
+    if size:
+        style += f"font-size: {size}px;"
+    if bold:
+        style += "font-weight: bold;"
+    if style:
+        l.setStyleSheet(style)
     return l
+
 
 def section_title(text):
     l = QLabel(text.upper())
     l.setObjectName("SectionTitle")
     return l
 
+
 def hline():
     f = QFrame()
     f.setFrameShape(QFrame.Shape.HLine)
-    f.setStyleSheet(f"color: {C['border']}; background: {C['border']}; min-height: 3px; max-height: 3px;")
+    f.setStyleSheet(
+        f"color: {C['border']}; background: {C['border']}; min-height: 3px; max-height: 3px;")
     return f
+
 
 def primary_btn(text, icon=None):
     b = QPushButton(text)
     b.setObjectName("PrimaryBtn")
     b.setCursor(Qt.CursorShape.PointingHandCursor)
-    if icon: b.setIcon(icon)
+    if icon:
+        b.setIcon(icon)
     return b
+
 
 def secondary_btn(text):
     b = QPushButton(text)
@@ -603,17 +633,20 @@ def secondary_btn(text):
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     return b
 
+
 def danger_btn(text):
     b = QPushButton(text)
     b.setObjectName("DangerBtn")
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     return b
 
+
 def download_btn(text):
     b = QPushButton(text)
     b.setObjectName("DownloadBtn")
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     return b
+
 
 def stat_card(value, label_text, color=None):
     card = QFrame()
@@ -622,46 +655,80 @@ def stat_card(value, label_text, color=None):
     lay.setContentsMargins(16, 12, 16, 12)
     lay.setSpacing(2)
     vl = QLabel(str(value))
-    vl.setStyleSheet(f"font-size: 28px; font-weight: bold; color: {color or C['accent']}; border: none;")
+    vl.setStyleSheet(
+        f"font-size: 28px; font-weight: bold; color: {color or C['accent']}; border: none;")
     ll = QLabel(label_text.upper())
-    ll.setStyleSheet(f"font-size: 12px; color: {C['text3']}; letter-spacing: 2px; border: none;")
+    ll.setStyleSheet(
+        f"font-size: 12px; color: {C['text3']}; letter-spacing: 2px; border: none;")
     lay.addWidget(vl)
     lay.addWidget(ll)
     return card, vl
 
+
 # ─────────────────────────────────────────────
 #  Logo widget (drawn, no file needed) — warm orange theme
 # ─────────────────────────────────────────────
-class LogoWidget(QWidget):
-    def __init__(self, size=36):
-        super().__init__()
-        self._sz = size
-        self.setFixedSize(size, size)
-        # CRITICAL: prevent QSS background from painting over custom draw
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setStyleSheet("background: transparent; border: none;")
+# ── Shared logo pixmap cache (loaded once from assets/) ──────────────────
+_LOGO_PIXMAP_CACHE: dict = {}
 
-    def paintEvent(self, e):
-        p = QPainter(self)
+
+def _get_logo_pixmap(size: int) -> QPixmap:
+    """Return a QPixmap of the GULP logo at `size`x`size`.
+    Loads from assets/gulp.ico or gulp.png; falls back to drawn teardrop."""
+    if size in _LOGO_PIXMAP_CACHE:
+        return _LOGO_PIXMAP_CACHE[size]
+
+    assets = Path(__file__).parent.parent / "assets"
+    pix = None
+    for candidate in [assets / "gulp.ico", assets / "gulp.png", assets / "gulp.bmp"]:
+        if candidate.exists():
+            loaded = QPixmap(str(candidate))
+            if not loaded.isNull():
+                pix = loaded.scaled(
+                    size, size,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                break
+
+    if pix is None or pix.isNull():
+        # Drawn fallback — teardrop shape
+        pix = QPixmap(size, size)
+        pix.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pix)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        sz = self._sz
-        # Orange background circle
-        grad = QLinearGradient(0, 0, sz, sz)
+        grad = QLinearGradient(0, 0, size, size)
         grad.setColorAt(0, QColor("#E65100"))
         grad.setColorAt(1, QColor("#BF360C"))
         p.setBrush(QBrush(grad))
-        p.setPen(QPen(QColor(C["sidebar_border"]), 2))
-        p.drawEllipse(2, 2, sz - 4, sz - 4)
-        # Water drop shape in white
+        p.setPen(QPen(QColor(C["sidebar_border"]), max(1, size // 18)))
+        p.drawEllipse(1, 1, size - 2, size - 2)
         p.setBrush(QBrush(QColor("white")))
         p.setPen(Qt.PenStyle.NoPen)
-        path = QPainterPath()
-        cx, top = sz / 2, sz * 0.15
-        path.moveTo(cx, top)
-        path.cubicTo(cx + sz*0.35, sz*0.35, cx + sz*0.3, sz*0.75, cx, sz*0.82)
-        path.cubicTo(cx - sz*0.3, sz*0.75, cx - sz*0.35, sz*0.35, cx, top)
-        p.drawPath(path)
+        cx, tip, bot, bulge = size*0.5, size*0.12, size*0.85, size*0.30
+        drop = QPainterPath()
+        drop.moveTo(cx, tip)
+        drop.cubicTo(cx+bulge*1.1, size*0.38, cx +
+                     bulge*0.95, size*0.72, cx, bot)
+        drop.cubicTo(cx-bulge*0.95, size*0.72, cx -
+                     bulge*1.1, size*0.38, cx, tip)
+        drop.closeSubpath()
+        p.drawPath(drop)
         p.end()
+
+    _LOGO_PIXMAP_CACHE[size] = pix
+    return pix
+
+
+class LogoWidget(QLabel):
+    """Displays the GULP logo image (from assets/) scaled to `size`x`size`."""
+
+    def __init__(self, size=36):
+        super().__init__()
+        self.setFixedSize(size, size)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setStyleSheet("background: transparent; border: none;")
+        self.setPixmap(_get_logo_pixmap(size))
 
 
 # ─────────────────────────────────────────────
@@ -741,7 +808,8 @@ class ModelPage(QWidget):
             C["text3"], 16))
 
         self.list = QListWidget()
-        self.list.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        self.list.setSelectionMode(
+            QAbstractItemView.SelectionMode.MultiSelection)
         self.list.setMinimumHeight(300)
         root.addWidget(self.list)
 
@@ -814,13 +882,15 @@ class ModelPage(QWidget):
 # ─────────────────────────────────────────────
 #  STEP 2 — Scan Page
 # ─────────────────────────────────────────────
+
+
 class ScanPage(QWidget):
     scan_done = pyqtSignal(list)
 
     def __init__(self):
         super().__init__()
-        self._models   = []
-        self._thread   = None
+        self._models = []
+        self._thread = None
         self._build()
 
     def _build(self):
@@ -839,15 +909,18 @@ class ScanPage(QWidget):
         self.scanning_lbl = label("", C["accent"], 16, bold=True)
         root.addWidget(self.scanning_lbl)
 
-        prog_card = QFrame(); prog_card.setObjectName("Card")
-        prog_lay  = QVBoxLayout(prog_card)
+        prog_card = QFrame()
+        prog_card.setObjectName("Card")
+        prog_lay = QVBoxLayout(prog_card)
         prog_lay.setContentsMargins(16, 14, 16, 14)
         prog_lay.setSpacing(10)
         pr = QHBoxLayout()
-        self.prog_lbl  = label("", C["text2"], 16)
-        self.prog_pct  = label("0%", C["accent"], 16, bold=True)
-        pr.addWidget(self.prog_lbl); pr.addStretch(); pr.addWidget(self.prog_pct)
-        self.progress  = QProgressBar()
+        self.prog_lbl = label("", C["text2"], 16)
+        self.prog_pct = label("0%", C["accent"], 16, bold=True)
+        pr.addWidget(self.prog_lbl)
+        pr.addStretch()
+        pr.addWidget(self.prog_pct)
+        self.progress = QProgressBar()
         self.progress.setFixedHeight(8)
         prog_lay.addLayout(pr)
         prog_lay.addWidget(self.progress)
@@ -860,7 +933,7 @@ class ScanPage(QWidget):
         root.addWidget(self.log)
 
         row = QHBoxLayout()
-        self.back_btn   = secondary_btn("← Back")
+        self.back_btn = secondary_btn("← Back")
         self.cancel_btn = danger_btn("Cancel")
         self.cancel_btn.setVisible(False)
         row.addWidget(self.back_btn)
@@ -897,7 +970,8 @@ class ScanPage(QWidget):
     def _on_done(self, master):
         self.cancel_btn.setVisible(False)
         self.back_btn.setEnabled(True)
-        self._append_log(f"\n✓  Scan complete — {len(master)} combinations found.")
+        self._append_log(
+            f"\n✓  Scan complete — {len(master)} combinations found.")
         self.scan_done.emit(master)
 
     def _on_error(self, msg):
@@ -908,15 +982,17 @@ class ScanPage(QWidget):
 # ─────────────────────────────────────────────
 #  STEP 3 — Filter & Download Page (with zoom)
 # ─────────────────────────────────────────────
+
+
 class FilterDownloadPage(QWidget):
     go_back = pyqtSignal()
 
     def __init__(self):
         super().__init__()
-        self._master    = []
-        self._thread    = None
-        self._out_dir   = DEFAULT_DIR
-        self._zoom      = 1.0
+        self._master = []
+        self._thread = None
+        self._out_dir = DEFAULT_DIR
+        self._zoom = 1.0
         self._build()
 
     def _build(self):
@@ -961,7 +1037,7 @@ class FilterDownloadPage(QWidget):
         filter_scroll.setFixedHeight(140)
         filter_container = QWidget()
         self._filter_lay = QGridLayout(filter_container)
-        self._filter_lay.setContentsMargins(0,0,0,0)
+        self._filter_lay.setContentsMargins(0, 0, 0, 0)
         self._filter_lay.setSpacing(8)
         filter_scroll.setWidget(filter_container)
         top_lay.addWidget(filter_scroll)
@@ -969,19 +1045,21 @@ class FilterDownloadPage(QWidget):
         stats_row = QHBoxLayout()
         self._combo_card, self._combo_val = stat_card(0, "Combinations")
         self._files_card, self._files_val = stat_card(0, "Files", C["green"])
-        self._size_card,  self._size_val  = stat_card("—", "Est. Size", C["yellow"])
+        self._size_card,  self._size_val = stat_card(
+            "—", "Est. Size", C["yellow"])
         for c in [self._combo_card, self._files_card, self._size_card]:
             stats_row.addWidget(c)
         stats_row.addStretch()
         top_lay.addLayout(stats_row)
 
         self._table_model = CombinationModel()
-        self._proxy       = QSortFilterProxyModel()
+        self._proxy = QSortFilterProxyModel()
         self._proxy.setSourceModel(self._table_model)
         self.table = QTableView()
         self.table.setModel(self._proxy)
         self.table.setSortingEnabled(True)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(False)
@@ -1033,13 +1111,13 @@ class FilterDownloadPage(QWidget):
         bot_lay.addWidget(self.log)
 
         btn_row = QHBoxLayout()
-        self.back_btn    = secondary_btn("← Back")
+        self.back_btn = secondary_btn("← Back")
         self.back_btn.clicked.connect(self.go_back)
         self.resolve_btn = secondary_btn("🔍  Resolve Files")
         self.resolve_btn.clicked.connect(self._resolve)
-        self.dl_btn      = AnimatedDownloadBtn("⬇  Download")
+        self.dl_btn = AnimatedDownloadBtn("⬇  Download")
         self.dl_btn.setEnabled(False)
-        self.stop_btn    = danger_btn("■  Stop")
+        self.stop_btn = danger_btn("■  Stop")
         self.stop_btn.setVisible(False)
         self.stop_btn.clicked.connect(self._stop_dl)
         btn_row.addWidget(self.back_btn)
@@ -1082,8 +1160,8 @@ class FilterDownloadPage(QWidget):
             super().wheelEvent(event)
 
     def set_master(self, master):
-        self._master  = master
-        self._files   = []
+        self._master = master
+        self._files = []
         self._resolved = False
         self.dl_btn.setEnabled(False)
         self._build_filters(master)
@@ -1093,19 +1171,20 @@ class FilterDownloadPage(QWidget):
     def _build_filters(self, master):
         for i in reversed(range(self._filter_lay.count())):
             w = self._filter_lay.itemAt(i).widget()
-            if w: w.deleteLater()
+            if w:
+                w.deleteLater()
         self._filter_checks.clear()
 
         groups = {
-            "Scenario":  sorted({x["scenario"]  for x in master}),
-            "Variable":  sorted({x["variable"]   for x in master}),
-            "Version":   sorted({x["version"]    for x in master}),
+            "Scenario":  sorted({x["scenario"] for x in master}),
+            "Variable":  sorted({x["variable"] for x in master}),
+            "Version":   sorted({x["version"] for x in master}),
         }
         col = 0
         for gname, values in groups.items():
             grp = QGroupBox(gname)
             grp_lay = QVBoxLayout(grp)
-            grp_lay.setContentsMargins(8,4,8,8)
+            grp_lay.setContentsMargins(8, 4, 8, 8)
             grp_lay.setSpacing(3)
             self._filter_checks[gname] = {}
             for v in values:
@@ -1123,13 +1202,13 @@ class FilterDownloadPage(QWidget):
 
         scens = checked("Scenario")
         vars_ = checked("Variable")
-        vers  = checked("Version")
+        vers = checked("Version")
 
         filtered = [
             x for x in self._master
             if x["scenario"] in scens
             and x["variable"] in vars_
-            and x["version"]  in vers
+            and x["version"] in vers
         ]
         self._table_model.set_data(filtered)
         self._combo_val.setText(str(len(filtered)))
@@ -1160,7 +1239,8 @@ class FilterDownloadPage(QWidget):
         self.resolve_btn.setEnabled(True)
 
     def _pick_dir(self):
-        d = QFileDialog.getExistingDirectory(self, "Select Output Folder", self._out_dir)
+        d = QFileDialog.getExistingDirectory(
+            self, "Select Output Folder", self._out_dir)
         if d:
             self._out_dir = d
             self.dir_lbl.setText(d)
@@ -1180,7 +1260,8 @@ class FilterDownloadPage(QWidget):
         self.dl_btn.setEnabled(False)
         self.stop_btn.setVisible(True)
         self.back_btn.setEnabled(False)
-        self.log.append(f"\nStarting download of {len(tasks)} files → {self._out_dir}\n")
+        self.log.append(
+            f"\nStarting download of {len(tasks)} files → {self._out_dir}\n")
 
         self._thread = DownloadThread(tasks, self.workers_spin.value())
         self._thread.file_done.connect(self._on_file_done)
@@ -1214,9 +1295,11 @@ class FilterDownloadPage(QWidget):
 
 class _ResolveThread(QThread):
     done = pyqtSignal(list)
+
     def __init__(self, selection):
         super().__init__()
         self.selection = selection
+
     def run(self):
         self.done.emit(collect_files(self.selection))
 
@@ -1230,7 +1313,8 @@ class SideBtn(QPushButton):
         self.setObjectName("SideBtn")
         self._step = step_num
         self.setCheckable(False)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding,
+                           QSizePolicy.Policy.Fixed)
         self.setFixedHeight(52)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(14, 0, 14, 0)
@@ -1248,7 +1332,8 @@ class SideBtn(QPushButton):
         """)
         self._num = num
         ic = QLabel(icon_text)
-        ic.setStyleSheet(f"font-size: 17px; color: {C['text2']};")
+        ic.setStyleSheet(
+            f"font-size: 17px; color: {C['text2']}; background: transparent; border: none;")
         lbl = QLabel(label_text)
         lbl.setStyleSheet(f"color: {C['text2']}; font-size: 17px;")
         self._lbl = lbl
@@ -1267,7 +1352,8 @@ class SideBtn(QPushButton):
                 font-weight: bold;
                 border: 2px solid {C['accent2']};
             """)
-            self._lbl.setStyleSheet(f"color: {C['accent']}; font-size: 17px; font-weight: bold;")
+            self._lbl.setStyleSheet(
+                f"color: {C['accent']}; font-size: 17px; font-weight: bold;")
             self.setProperty("active", "true")
         else:
             self._num.setStyleSheet(f"""
@@ -1286,10 +1372,13 @@ class SideBtn(QPushButton):
 # ─────────────────────────────────────────────
 #  Main Window  (with close warning)
 # ─────────────────────────────────────────────
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"GULP — GeoData Universal Loader for Precipitation  v{APP_VERSION}")
+        self.setWindowTitle(
+            f"GULP — GDDP Unified Loader & Processor  v{APP_VERSION}")
         self.setMinimumSize(1000, 680)
         self.resize(1200, 760)
         self._master = []
@@ -1362,16 +1451,19 @@ class MainWindow(QMainWindow):
         # Logo / title
         logo_area = QWidget()
         logo_area.setFixedHeight(80)
-        logo_area.setStyleSheet(f"background: {C['panel']}; border-bottom: 4px solid {C['sidebar_border']};")
+        logo_area.setStyleSheet(
+            f"background: {C['panel']}; border-bottom: 4px solid {C['sidebar_border']};")
         ll = QHBoxLayout(logo_area)
         ll.setContentsMargins(14, 0, 14, 0)
         logo = LogoWidget(40)
         title_col = QVBoxLayout()
         title_col.setSpacing(0)
         t1 = QLabel("GULP")
-        t1.setStyleSheet(f"color: {C['text']}; font-size: 20px; font-weight: bold; letter-spacing: 4px; border: none; background: transparent;")
+        t1.setStyleSheet(
+            f"color: {C['text']}; font-size: 20px; font-weight: bold; letter-spacing: 4px; border: none; background: transparent;")
         t2 = QLabel(f"v{APP_VERSION}")
-        t2.setStyleSheet(f"color: {C['text3']}; font-size: 13px; border: none; background: transparent;")
+        t2.setStyleSheet(
+            f"color: {C['text3']}; font-size: 13px; border: none; background: transparent;")
         title_col.addWidget(t1)
         title_col.addWidget(t2)
         ll.addWidget(logo)
@@ -1383,9 +1475,9 @@ class MainWindow(QMainWindow):
 
         self._nav_btns = []
         steps = [
-            ("🌐", "Models",   0),
-            ("🔍", "Scan",     1),
-            ("⬇", "Download", 2),
+            ("Models",   0),
+            ("Scan",     1),
+            ("Download", 2),
         ]
         for icon, lbl_text, idx in steps:
             btn = SideBtn(icon, lbl_text, idx + 1)
@@ -1406,7 +1498,8 @@ class MainWindow(QMainWindow):
         brow.addWidget(bottom_logo)
         brow.addSpacing(6)
         binfo = QLabel("NASA NEX-GDDP-CMIP6\nAWS S3 Public Dataset")
-        binfo.setStyleSheet(f"color: {C['text3']}; font-size: 12px; background: transparent; border: none;")
+        binfo.setStyleSheet(
+            f"color: {C['text3']}; font-size: 12px; background: transparent; border: none;")
         binfo.setWordWrap(True)
         brow.addWidget(binfo)
         brow.addStretch()
@@ -1418,9 +1511,9 @@ class MainWindow(QMainWindow):
         # ── Page stack ───────────────────────────
         self._stack = QStackedWidget()
 
-        self._page_models  = ModelPage()
-        self._page_scan    = ScanPage()
-        self._page_dl      = FilterDownloadPage()
+        self._page_models = ModelPage()
+        self._page_scan = ScanPage()
+        self._page_dl = FilterDownloadPage()
 
         self._stack.addWidget(self._page_models)
         self._stack.addWidget(self._page_scan)
@@ -1435,8 +1528,10 @@ class MainWindow(QMainWindow):
         self._page_dl.go_back.connect(lambda: self._goto(0))
 
         # Track downloading state for close warning
-        self._page_dl.dl_btn.clicked.connect(lambda: setattr(self, '_downloading', True))
-        self._page_dl.stop_btn.clicked.connect(lambda: setattr(self, '_downloading', False))
+        self._page_dl.dl_btn.clicked.connect(
+            lambda: setattr(self, '_downloading', True))
+        self._page_dl.stop_btn.clicked.connect(
+            lambda: setattr(self, '_downloading', False))
 
         # ── Status bar ───────────────────────────
         self.status = QStatusBar()
@@ -1486,14 +1581,15 @@ def _make_fallback_icon():
     grad.setColorAt(1, QColor("#BF360C"))
     p.setBrush(QBrush(grad))
     p.setPen(QPen(QColor("#3E2723"), 8))
-    p.drawEllipse(8, 8, 240, 240)
+    p.drawEllipse(4, 4, 248, 248)
     p.setBrush(QBrush(QColor("white")))
     p.setPen(Qt.PenStyle.NoPen)
     drop = QPainterPath()
-    cx = 128.0
-    drop.moveTo(cx, 33)
-    drop.cubicTo(cx+80, 70,  cx+75, 155, cx, 215)
-    drop.cubicTo(cx-75, 155, cx-80, 70,  cx, 33)
+    cx, tip, bot, bulge = 128.0, 30.0, 218.0, 76.0
+    drop.moveTo(cx, tip)
+    drop.cubicTo(cx+bulge*1.1, 97, cx+bulge*0.95, 184, cx, bot)
+    drop.cubicTo(cx-bulge*0.95, 184, cx-bulge*1.1, 97, cx, tip)
+    drop.closeSubpath()
     p.drawPath(drop)
     p.end()
     return QIcon(pix)
@@ -1515,10 +1611,10 @@ def main():
     app.setApplicationVersion(APP_VERSION)
     app.setStyleSheet(QSS)
 
-    # Load icon: prefer the .ico in assets/ (has 16/24/32/48/64/128/256px frames)
+    # Load icon from assets/ — .ico has multi-resolution frames (best for Windows)
     assets = Path(__file__).parent.parent / "assets"
     app_icon = None
-    for candidate in [assets / "gulp.ico", assets / "gulp.png"]:
+    for candidate in [assets / "gulp.ico", assets / "gulp.png", assets / "gulp.bmp"]:
         if candidate.exists():
             loaded = QIcon(str(candidate))
             if not loaded.isNull():
