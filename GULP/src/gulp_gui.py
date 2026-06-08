@@ -86,17 +86,20 @@ QMainWindow, QDialog {{
     border-right: 4px solid {C['sidebar_border']};
 }}
 #SideBtn {{
-    background: transparent;
+    background-color: transparent;
     border: none;
     border-radius: 6px;
     padding: 10px 16px;
     text-align: left;
-    color: {C['text2']};
+    color: #4E342E;
     font-size: 17px;
+}}
+#SideBtn QLabel {{
+    background-color: transparent;
 }}
 #SideBtn:hover {{ background: {C['hover']}; color: {C['text']}; }}
 #SideBtn[active="true"] {{
-    background: {C['accent_dim']};
+    background: {C['bg']};
     color: {C['accent']};
     border-left: 4px solid {C['accent']};
 }}
@@ -735,7 +738,7 @@ class LogoWidget(QLabel):
 #  Animated Download Button (green, pulsing arrow)
 # ─────────────────────────────────────────────
 class AnimatedDownloadBtn(QPushButton):
-    def __init__(self, text="⬇  Download"):
+    def __init__(self, text="Download"):
         super().__init__(text)
         self.setObjectName("DownloadBtn")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1308,22 +1311,33 @@ class _ResolveThread(QThread):
 #  Sidebar nav button
 # ─────────────────────────────────────────────
 class SideBtn(QPushButton):
-    def __init__(self, icon_text, label_text, step_num):
+    def __init__(self, label_text, step_num):
         super().__init__()
+
         self.setObjectName("SideBtn")
         self._step = step_num
+
+        # Remove native button background
+        self.setFlat(True)
+        self.setAutoFillBackground(False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
         self.setCheckable(False)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding,
-                           QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed
+        )
         self.setFixedHeight(52)
+
         lay = QHBoxLayout(self)
         lay.setContentsMargins(14, 0, 14, 0)
         lay.setSpacing(10)
+
         num = QLabel(str(step_num))
         num.setFixedSize(26, 26)
         num.setAlignment(Qt.AlignmentFlag.AlignCenter)
         num.setStyleSheet(f"""
-            background: {C['border2']};
+            background: transparent;
             color: {C['card']};
             border-radius: 13px;
             font-size: 13px;
@@ -1331,14 +1345,16 @@ class SideBtn(QPushButton):
             border: 2px solid {C['border']};
         """)
         self._num = num
-        ic = QLabel(icon_text)
-        ic.setStyleSheet(
-            f"font-size: 17px; color: {C['text2']}; background: transparent; border: none;")
+
         lbl = QLabel(label_text)
-        lbl.setStyleSheet(f"color: {C['text2']}; font-size: 17px;")
+        lbl.setStyleSheet(f"""
+            background: transparent;
+            color: {C['text2']};
+            font-size: 17px;
+        """)
         self._lbl = lbl
+
         lay.addWidget(num)
-        lay.addWidget(ic)
         lay.addWidget(lbl)
         lay.addStretch()
 
@@ -1352,9 +1368,16 @@ class SideBtn(QPushButton):
                 font-weight: bold;
                 border: 2px solid {C['accent2']};
             """)
-            self._lbl.setStyleSheet(
-                f"color: {C['accent']}; font-size: 17px; font-weight: bold;")
+
+            self._lbl.setStyleSheet(f"""
+                background: transparent;
+                color: {C['accent']};
+                font-size: 17px;
+                font-weight: bold;
+            """)
+
             self.setProperty("active", "true")
+
         else:
             self._num.setStyleSheet(f"""
                 background: {C['border2']};
@@ -1364,10 +1387,18 @@ class SideBtn(QPushButton):
                 font-weight: bold;
                 border: 2px solid {C['border']};
             """)
-            self._lbl.setStyleSheet(f"color: {C['text2']}; font-size: 17px;")
+
+            self._lbl.setStyleSheet(f"""
+                background: transparent;
+                color: {C['text2']};
+                font-size: 17px;
+            """)
+
             self.setProperty("active", "false")
+
         self.style().unpolish(self)
         self.style().polish(self)
+
 
 # ─────────────────────────────────────────────
 #  Main Window  (with close warning)
@@ -1479,8 +1510,8 @@ class MainWindow(QMainWindow):
             ("Scan",     1),
             ("Download", 2),
         ]
-        for icon, lbl_text, idx in steps:
-            btn = SideBtn(icon, lbl_text, idx + 1)
+        for lbl_text, idx in steps:
+            btn = SideBtn(lbl_text, idx + 1)
             btn.clicked.connect(lambda _, i=idx: self._maybe_goto(i))
             sb_lay.addWidget(btn)
             self._nav_btns.append(btn)
