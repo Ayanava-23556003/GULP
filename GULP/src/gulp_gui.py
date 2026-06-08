@@ -1399,6 +1399,108 @@ class SideBtn(QPushButton):
         self.style().unpolish(self)
         self.style().polish(self)
 
+# ─────────────────────────────────────────────
+#  Splash Screen
+# ─────────────────────────────────────────────
+
+
+class SplashScreen(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        self.setFixedSize(500, 300)
+
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.SplashScreen
+        )
+
+        self.setAttribute(
+            Qt.WidgetAttribute.WA_TranslucentBackground
+        )
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        card = QFrame()
+        card.setStyleSheet(f"""
+            QFrame {{
+                background: {C['card']};
+                border: 3px solid {C['border']};
+                border-radius: 16px;
+            }}
+        """)
+
+        lay = QVBoxLayout(card)
+        lay.setSpacing(12)
+        lay.setContentsMargins(30, 30, 30, 30)
+
+        logo = QLabel()
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        assets = Path(__file__).parent.parent / "assets"
+
+        pix = QPixmap(str(assets / "gulp.png"))
+
+        if not pix.isNull():
+            logo.setPixmap(
+                pix.scaled(
+                    120,
+                    120,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+            )
+
+        title = QLabel("GULP")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet(f"""
+            color: {C['accent']};
+            font-size: 32px;
+            font-weight: bold;
+            border:none;
+        """)
+
+        subtitle = QLabel(
+            "GDDP Unified Loader & Processor"
+        )
+
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        subtitle.setStyleSheet(f"""
+            color: {C['text2']};
+            font-size: 16px;
+            border:none;
+        """)
+
+        version = QLabel(f"Version {APP_VERSION}")
+        version.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        version.setStyleSheet(f"""
+            color: {C['text3']};
+            font-size: 14px;
+            border:none;
+        """)
+
+        lay.addStretch()
+        lay.addWidget(logo)
+        lay.addWidget(title)
+        lay.addWidget(subtitle)
+        lay.addWidget(version)
+        lay.addStretch()
+
+        outer.addWidget(card)
+
+        screen = QApplication.primaryScreen()
+
+        if screen:
+            geo = screen.availableGeometry()
+
+            self.move(
+                geo.center().x() - self.width() // 2,
+                geo.center().y() - self.height() // 2
+            )
+
 
 # ─────────────────────────────────────────────
 #  Main Window  (with close warning)
@@ -1627,38 +1729,73 @@ def _make_fallback_icon():
 
 
 def main():
-    # Tell Windows this is its own app so taskbar/title bar shows our icon
-    # (without this, Windows uses the pythonw.exe icon instead)
+
     try:
         import ctypes
+
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-            "GULP.GeoDataLoader.1.0"
+            "GULP.GDDP_Unified_Processor_&_Loader.1.0"
         )
+
     except Exception:
-        pass  # Non-Windows platform — ignore
+        pass
 
     app = QApplication(sys.argv)
+
     app.setApplicationName("GULP")
     app.setApplicationVersion(APP_VERSION)
+
     app.setStyleSheet(QSS)
 
-    # Load icon from assets/ — .ico has multi-resolution frames (best for Windows)
+    # Load application icon
     assets = Path(__file__).parent.parent / "assets"
+
     app_icon = None
-    for candidate in [assets / "gulp.ico", assets / "gulp.png", assets / "gulp.bmp"]:
+
+    for candidate in [
+        assets / "gulp.ico",
+        assets / "gulp.png",
+        assets / "gulp.bmp",
+    ]:
+
         if candidate.exists():
+
             loaded = QIcon(str(candidate))
+
             if not loaded.isNull():
                 app_icon = loaded
                 break
+
     if app_icon is None:
         app_icon = _make_fallback_icon()
 
-    app.setWindowIcon(app_icon)   # taskbar (Linux/macOS)
+    app.setWindowIcon(app_icon)
 
+    # ─────────────────────────────
+    # Splash Screen
+    # ─────────────────────────────
+
+    splash = SplashScreen()
+    splash.show()
+
+    app.processEvents()
+
+    # Create main window
     win = MainWindow()
-    win.setWindowIcon(app_icon)   # title bar + Windows taskbar
-    win.show()
+    win.setWindowIcon(app_icon)
+
+    # Show after 2 seconds
+    def show_main():
+
+        splash.close()
+
+        win.show()
+
+    QTimer.singleShot(
+        2000,
+        show_main
+    )
+
     sys.exit(app.exec())
 
 
