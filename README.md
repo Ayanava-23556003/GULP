@@ -74,7 +74,7 @@ download any subset of these datasets in parallel.
 ### Windows (Manual)
 
 ```bat
-git clone https://github.com/your-org/gulp.git
+git clone https://github.com/Ayanava-23556003/GULP.git
 cd gulp
 pip install -r requirements.txt
 gulp.bat
@@ -83,7 +83,7 @@ gulp.bat
 ### Linux / macOS
 
 ```bash
-git clone https://github.com/your-org/gulp.git
+git clone https://github.com/Ayanava-23556003/GULP.git
 cd gulp
 chmod +x gulp.sh
 ./gulp.sh
