@@ -5,10 +5,10 @@
 ; =============================================================
 
 #define AppName      "GULP"
-#define AppFullName  "GULP - GeoData Universal Loader for Precipitation"
+#define AppFullName  "GULP - GDDP Unified Loader & Processor"
 #define AppVersion   "1.0.0"
-#define AppPublisher "GULP Project"
-#define AppURL       "https://github.com/your-org/gulp"
+#define AppPublisher "Ayanava Poddar"
+#define AppURL       "https://github.com/Ayanava-23556003/GULP"
 #define AppExeName   "gulp.bat"
 
 [Setup]
