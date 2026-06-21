@@ -67,7 +67,52 @@ echo Using Python:
 "!PYEXE!" --version
 echo.
 
-REM ---- 3. Launch GULP. The script itself auto-installs any missing pip packages. ----
+REM ---- 3. Warn if running from a cloud-sync drive ----
+REM Native DLLs (e.g. PyQt6's Qt6 DLLs) often fail to load correctly from
+REM Google Drive / OneDrive / Dropbox sync folders even when the file
+REM appears present. This doesn't block the run, just flags the likely
+REM cause if something goes wrong below.
+echo %~dp0 | findstr /I /C:"Google Drive" /C:"OneDrive" /C:"Dropbox" /C:"iCloudDrive" >nul
+if !errorlevel!==0 (
+    echo [WARNING] This folder is inside a cloud-sync drive:
+    echo            %~dp0
+    echo            Native DLLs ^(used by PyQt6^) can fail to load from here.
+    echo            If you hit a "DLL load failed" error below, copy this
+    echo            whole folder to a local path like C:\GULP and run it
+    echo            from there instead.
+    echo.
+)
+
+REM ---- 4. Ensure the Microsoft Visual C++ Redistributable (x64) is present ----
+REM PyQt6's compiled Qt6 DLLs require this; a fresh Python install does
+REM not include it, and a missing/outdated copy is the other common
+REM cause of "DLL load failed while importing QtCore". Checking for the
+REM actual DLL files in System32 is more reliable than the registry key,
+REM which can report "installed" even when an older/partial copy is
+REM present (vcruntime140_1.dll specifically was added in a later
+REM update and is the one most often missing).
+if not exist "%WINDIR%\System32\vcruntime140_1.dll" goto :install_vcredist
+if not exist "%WINDIR%\System32\msvcp140.dll" goto :install_vcredist
+goto :vcredist_done
+
+:install_vcredist
+echo Microsoft Visual C++ Redistributable ^(x64^) missing or out of date.
+echo Downloading and installing it silently...
+set "VC_INSTALLER=%TEMP%\gulp_vc_redist.x64.exe"
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vc_redist.x64.exe' -OutFile '!VC_INSTALLER!' -UseBasicParsing } catch { exit 1 }"
+if exist "!VC_INSTALLER!" (
+    "!VC_INSTALLER!" /install /quiet /norestart
+    del "!VC_INSTALLER!" >nul 2>nul
+    echo Done.
+) else (
+    echo [WARNING] Could not download the VC++ Redistributable automatically.
+    echo            If GULP fails with a "DLL load failed" error, install it
+    echo            manually from: https://aka.ms/vs/17/release/vc_redist.x64.exe
+)
+echo.
+:vcredist_done
+
+REM ---- 5. Launch GULP. The script itself auto-installs any missing pip packages. ----
 echo Launching GULP GUI ...
 echo.
 "!PYEXE!" "%~dp0gulp_gui.py"

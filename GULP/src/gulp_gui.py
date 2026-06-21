@@ -3,18 +3,65 @@ GULP — GDDP Unified Loader & Processor
 PyQt6 GUI  |  v1.0.0  — Redesigned
 """
 
+import importlib.util
 import os
-import re
+import subprocess
 import sys
+
+
+# ─────────────────────────────────────────────
+#  Auto-install missing dependencies
+# ─────────────────────────────────────────────
+# Runs before any third-party imports. Hard requirements (the app cannot
+# run without them) abort with a clear message if auto-install fails.
+# Soft requirements (only needed for the shapefile-clip feature) degrade
+# gracefully — clipping is simply disabled, the rest of the app still runs.
+def _pip_install(*packages):
+    pkgs = [p for p in packages if p]
+    if not pkgs:
+        return True
+    print(f"[SETUP] Installing missing package(s): {', '.join(pkgs)} ...")
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--quiet", *pkgs]
+        )
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"[SETUP] pip install failed for {pkgs}: {e}")
+        return False
+
+
+def _ensure(module_name, pip_name=None, required=True):
+    pip_name = pip_name or module_name
+    if importlib.util.find_spec(module_name) is None:
+        ok = _pip_install(pip_name)
+        if not ok and required:
+            print(
+                f"[ERROR] '{module_name}' is required but could not be "
+                f"installed automatically.\n"
+                f"        Please run manually:  pip install {pip_name}"
+            )
+            sys.exit(1)
+
+
+_ensure("requests")
+_ensure("PyQt6")
+for _mod, _pip in (("geopandas", "geopandas"),
+                    ("xarray", "xarray"),
+                    ("rioxarray", "rioxarray")):
+    _ensure(_mod, _pip, required=False)
+
+
+import re
 import tempfile
 import xml.etree.ElementTree as ET
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-# Optional geospatial clipping stack — only required if the user opts to
-# clip downloads to a shapefile. Imported lazily/guarded so the app still
-# runs (without clipping) if these aren't installed.
+# Optional geospatial clipping stack — auto-installed above if missing.
+# If it still failed (e.g. no internet, unsupported platform), the app
+# keeps running with clipping disabled rather than crashing.
 try:
     import geopandas as gpd
     import xarray as xr
@@ -23,25 +70,111 @@ try:
 except ImportError:
     CLIPPING_AVAILABLE = False
 
-from PyQt6.QtCore import (
-    Qt, QThread, pyqtSignal, QSize, QTimer, QPropertyAnimation,
-    QEasingCurve, QAbstractTableModel, QModelIndex, QSortFilterProxyModel,
-    QRect,
-)
-from PyQt6.QtGui import (
-    QColor, QFont, QFontDatabase, QPalette, QIcon, QPixmap,
-    QPainter, QLinearGradient, QBrush, QPen, QPainterPath,
-    QWheelEvent, QKeySequence, QShortcut,
-)
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QGridLayout, QLabel, QPushButton, QListWidget, QListWidgetItem,
-    QTableView, QHeaderView, QProgressBar, QTextEdit, QFileDialog,
-    QFrame, QSplitter, QStackedWidget, QCheckBox, QSpinBox,
-    QAbstractItemView, QSizePolicy, QScrollArea, QStatusBar,
-    QDialog, QDialogButtonBox, QMessageBox, QGroupBox,
-    QGraphicsOpacityEffect,
-)
+_QT_RETRY_FLAG = "_GULP_QT_RETRY_DONE"
+
+try:
+    from PyQt6.QtCore import (
+        Qt, QThread, pyqtSignal, QSize, QTimer, QPropertyAnimation,
+        QEasingCurve, QAbstractTableModel, QModelIndex, QSortFilterProxyModel,
+        QRect,
+    )
+    from PyQt6.QtGui import (
+        QColor, QFont, QFontDatabase, QPalette, QIcon, QPixmap,
+        QPainter, QLinearGradient, QBrush, QPen, QPainterPath,
+        QWheelEvent, QKeySequence, QShortcut,
+    )
+    from PyQt6.QtWidgets import (
+        QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+        QGridLayout, QLabel, QPushButton, QListWidget, QListWidgetItem,
+        QTableView, QHeaderView, QProgressBar, QTextEdit, QFileDialog,
+        QFrame, QSplitter, QStackedWidget, QCheckBox, QSpinBox,
+        QAbstractItemView, QSizePolicy, QScrollArea, QStatusBar,
+        QDialog, QDialogButtonBox, QMessageBox, QGroupBox,
+        QGraphicsOpacityEffect,
+    )
+except ImportError as e:
+    # PyQt6 is installed (we checked above) but its compiled Qt6 DLLs
+    # failed to load. On Windows this is almost always one of:
+    #   1. A corrupted/partial PyQt6 install (most common — fixable
+    #      automatically by a clean reinstall, tried once below).
+    #   2. The Microsoft Visual C++ Redistributable (x64) is missing.
+    #   3. Another app (Anaconda/Miniconda, another Qt-based app) has put
+    #      conflicting same-named DLLs earlier on PATH than PyQt6's own.
+    #   4. The project is running from a cloud-sync drive (Google Drive,
+    #      OneDrive, Dropbox, ...) — native DLLs frequently fail to load
+    #      from these even when the file looks present locally.
+
+    # ---- Attempt one automatic self-heal: clean reinstall + restart ----
+    # Guarded by an env var so this can only ever fire once per launch —
+    # if it still fails after a clean reinstall, we stop retrying and
+    # show diagnostics instead of looping forever.
+    if os.environ.get(_QT_RETRY_FLAG) != "1":
+        print("\n[SETUP] PyQt6 failed to load its DLLs — attempting an "
+              "automatic clean reinstall...")
+        print(f"        ({e})\n")
+        reinstall_ok = True
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "uninstall", "-y",
+                 "PyQt6", "PyQt6-Qt6", "PyQt6-sip"],
+                check=False,
+            )
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install",
+                 "--no-cache-dir", "--force-reinstall", "PyQt6"]
+            )
+        except subprocess.CalledProcessError as reinstall_err:
+            reinstall_ok = False
+            print(f"[SETUP] Automatic reinstall failed: {reinstall_err}\n")
+
+        if reinstall_ok:
+            print("[SETUP] Reinstalled PyQt6. Restarting GULP...\n")
+            os.environ[_QT_RETRY_FLAG] = "1"
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        # else: fall through to diagnostics below
+
+    # ---- Reinstall already tried (or failed to run) and it still fails ----
+    print("\n[ERROR] PyQt6 is installed but its DLLs still failed to load:")
+    print(f"        {e}\n")
+
+    this_path = str(Path(__file__).resolve())
+    cloud_markers = ("Google Drive", "OneDrive", "Dropbox", "iCloudDrive")
+    on_cloud_drive = any(m in this_path for m in cloud_markers)
+
+    path_entries = os.environ.get("PATH", "").split(os.pathsep)
+    suspect_markers = ("conda", "anaconda", "miniconda", "qt5", "qt4")
+    suspect_paths = [
+        p for p in path_entries
+        if any(m in p.lower() for m in suspect_markers)
+    ]
+
+    print("A clean reinstall didn't fix it. Remaining likely causes:\n")
+    step = 1
+    if suspect_paths:
+        print(f"  {step}. Another Python/Qt install is on your PATH ahead of "
+              f"this one, and its DLLs are conflicting with PyQt6's own:")
+        for p in suspect_paths[:5]:
+            print(f"       {p}")
+        print("     This is the most common cause of this exact error when a "
+              "clean reinstall doesn't help. Fix by either:")
+        print("       - Removing/reordering those entries in your PATH "
+              "environment variable, or")
+        print("       - Running GULP from an isolated virtual environment:")
+        print("           python -m venv .venv")
+        print("           .venv\\Scripts\\activate")
+        print("           pip install -r requirements.txt")
+        print("           python gulp_gui.py\n")
+        step += 1
+    if on_cloud_drive:
+        print(f"  {step}. This folder is inside a cloud-sync drive:")
+        print(f"     {this_path}")
+        print("     Copy the whole GULP folder to a local path instead, "
+              "e.g. C:\\GULP, and run it from there.\n")
+        step += 1
+    print(f"  {step}. Install/repair the Microsoft Visual C++ Redistributable (x64):")
+    print("     https://aka.ms/vs/17/release/vc_redist.x64.exe")
+    print("     (run_gulp_windows.bat does this automatically if you use it.)\n")
+    sys.exit(1)
 
 # ─────────────────────────────────────────────
 #  S3 / Backend constants

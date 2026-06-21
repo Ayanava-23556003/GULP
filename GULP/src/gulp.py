@@ -4,18 +4,65 @@ NASA NEX-GDDP-CMIP6 Dataset Downloader
 Version 1.0.0
 """
 
+import importlib.util
 import os
-import re
+import subprocess
 import sys
+
+
+# ─────────────────────────────────────────────
+#  Auto-install missing dependencies
+# ─────────────────────────────────────────────
+# Runs before any third-party imports. Hard requirements (the app cannot
+# run without them) abort with a clear message if auto-install fails.
+# Soft requirements (only needed for the shapefile-clip feature) degrade
+# gracefully — clipping is simply disabled, the rest of the app still runs.
+def _pip_install(*packages):
+    pkgs = [p for p in packages if p]
+    if not pkgs:
+        return True
+    print(f"[SETUP] Installing missing package(s): {', '.join(pkgs)} ...")
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--quiet", *pkgs]
+        )
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"[SETUP] pip install failed for {pkgs}: {e}")
+        return False
+
+
+def _ensure(module_name, pip_name=None, required=True):
+    pip_name = pip_name or module_name
+    if importlib.util.find_spec(module_name) is None:
+        ok = _pip_install(pip_name)
+        if not ok and required:
+            print(
+                f"[ERROR] '{module_name}' is required but could not be "
+                f"installed automatically.\n"
+                f"        Please run manually:  pip install {pip_name}"
+            )
+            sys.exit(1)
+
+
+_ensure("requests")
+_ensure("tqdm")
+for _mod, _pip in (("geopandas", "geopandas"),
+                    ("xarray", "xarray"),
+                    ("rioxarray", "rioxarray")):
+    _ensure(_mod, _pip, required=False)
+
+
+import re
 import tempfile
 import xml.etree.ElementTree as ET
 import requests
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 
-# Optional geospatial clipping stack — only needed if the user opts to clip
-# downloads to a shapefile. Imported lazily/guarded so the CLI still runs
-# (without clipping) if these aren't installed.
+# Optional geospatial clipping stack — auto-installed above if missing.
+# If it still failed (e.g. no internet, unsupported platform), the app
+# keeps running with clipping disabled rather than crashing.
 try:
     import geopandas as gpd
     import xarray as xr
