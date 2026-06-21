@@ -6,10 +6,22 @@ PyQt6 GUI  |  v1.0.0  — Redesigned
 import os
 import re
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
+# Optional geospatial clipping stack — only required if the user opts to
+# clip downloads to a shapefile. Imported lazily/guarded so the app still
+# runs (without clipping) if these aren't installed.
+try:
+    import geopandas as gpd
+    import xarray as xr
+    import rioxarray  # noqa: F401  (registers the .rio accessor on xarray)
+    CLIPPING_AVAILABLE = True
+except ImportError:
+    CLIPPING_AVAILABLE = False
 
 from PyQt6.QtCore import (
     Qt, QThread, pyqtSignal, QSize, QTimer, QPropertyAnimation,
@@ -444,20 +456,79 @@ def collect_files(selection):
     return files
 
 
-def download_file(url, out_file):
+def clip_netcdf(in_path, out_path, geometries, geom_crs):
+    """
+    Open a downloaded NEX-GDDP-CMIP6 NetCDF file, clip it to the given
+    shapefile geometries, and write only the clipped (much smaller) result
+    to out_path. Raises on failure — caller is responsible for cleanup.
+    """
+    ds = xr.open_dataset(in_path)
+    try:
+        # NEX-GDDP-CMIP6 grids are plain WGS84 lat/lon with no CRS metadata.
+        ds = ds.rio.set_spatial_dims(x_dim="lon", y_dim="lat")
+        ds.rio.write_crs("EPSG:4326", inplace=True)
+
+        # NEX-GDDP-CMIP6 longitude runs 0–360; shapefiles are almost always
+        # -180–180. Re-wrap + re-sort so the clip lines up with the geometry
+        # instead of silently returning an empty / wrong-side result.
+        lon_max = float(ds["lon"].max())
+        if lon_max > 180:
+            ds = ds.assign_coords(
+                lon=(((ds["lon"] + 180) % 360) - 180)
+            ).sortby("lon")
+
+        clipped = ds.rio.clip(
+            geometries, geom_crs, drop=True, all_touched=True
+        )
+
+        encoding = {
+            var: {"zlib": True, "complevel": 4}
+            for var in clipped.data_vars
+        }
+        clipped.to_netcdf(out_path, encoding=encoding)
+    finally:
+        ds.close()
+
+
+def download_file(url, out_file, clip_geom=None, clip_crs=None):
     if os.path.exists(out_file):
         return True, out_file, "skipped"
     os.makedirs(os.path.dirname(out_file), exist_ok=True)
+
+    # When clipping, the full file is streamed to a temp path first, clipped,
+    # and only the clipped output is kept — the full download is discarded.
+    tmp_file = None
+    download_target = out_file
+    if clip_geom is not None:
+        fd, tmp_file = tempfile.mkstemp(suffix=".nc", prefix="gulp_raw_")
+        os.close(fd)
+        download_target = tmp_file
+
     try:
         with requests.get(url, stream=True, timeout=120) as r:
             r.raise_for_status()
-            with open(out_file, "wb") as f:
+            with open(download_target, "wb") as f:
                 for chunk in r.iter_content(1024 * 1024):
                     if chunk:
                         f.write(chunk)
-        return True, out_file, "ok"
     except Exception as e:
-        return False, out_file, str(e)
+        if tmp_file and os.path.exists(tmp_file):
+            os.remove(tmp_file)
+        return False, out_file, f"download failed: {e}"
+
+    if clip_geom is None:
+        return True, out_file, "ok"
+
+    try:
+        clip_netcdf(tmp_file, out_file, clip_geom, clip_crs)
+        return True, out_file, "ok (clipped)"
+    except Exception as e:
+        if os.path.exists(out_file):
+            os.remove(out_file)
+        return False, out_file, f"clip failed: {e}"
+    finally:
+        if tmp_file and os.path.exists(tmp_file):
+            os.remove(tmp_file)
 
 # ─────────────────────────────────────────────
 #  Worker threads
@@ -512,10 +583,12 @@ class DownloadThread(QThread):
     log = pyqtSignal(str)
     finished = pyqtSignal(int, int)
 
-    def __init__(self, tasks, max_workers=16):
+    def __init__(self, tasks, max_workers=16, clip_geom=None, clip_crs=None):
         super().__init__()
         self.tasks = tasks
         self.max_workers = max_workers
+        self.clip_geom = clip_geom
+        self.clip_crs = clip_crs
         self._stop = False
 
     def stop(self):
@@ -525,8 +598,10 @@ class DownloadThread(QThread):
         ok_count = failed_count = done = 0
         total = len(self.tasks)
         with ThreadPoolExecutor(max_workers=self.max_workers) as ex:
-            futures = {ex.submit(download_file, url, out): (url, out)
-                       for url, out in self.tasks}
+            futures = {
+                ex.submit(download_file, url, out, self.clip_geom, self.clip_crs): (url, out)
+                for url, out in self.tasks
+            }
             for fut in as_completed(futures):
                 if self._stop:
                     break
@@ -987,6 +1062,127 @@ class ScanPage(QWidget):
 # ─────────────────────────────────────────────
 
 
+class ClipDialog(QDialog):
+    """
+    Popup shown right before download starts, asking whether the user
+    wants to clip every NetCDF file to a shapefile boundary (to avoid
+    saving full ~250MB global/regional files when only a small area is
+    needed). Returns via self.shapefile_path:
+        None        -> user chose to skip clipping (download full files)
+        <path str>  -> user selected and validated a shapefile
+    self.cancelled is True if the user closed/cancelled the dialog
+    (download should not proceed at all).
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.shapefile_path = None
+        self.clip_geometries = None
+        self.clip_crs = None
+        self.cancelled = False
+        self.setWindowTitle("Clip Downloads?")
+        self.setMinimumWidth(460)
+        self.setStyleSheet(f"""
+            QDialog {{ background: {C['bg']}; }}
+            QLabel {{ color: {C['text']}; font-size: 16px; }}
+        """)
+        self._build()
+
+    def _build(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 22, 24, 20)
+        lay.setSpacing(14)
+
+        title = label("📐  Clip files before saving?", C["text"], 18, bold=True)
+        lay.addWidget(title)
+
+        info = QLabel(
+            "Each NetCDF file is roughly 250&nbsp;MB. If you only need data "
+            "for a specific region, you can clip every file to a shapefile "
+            "boundary — only the clipped (much smaller) result is kept on "
+            "disk, the full file is discarded after clipping.<br><br>"
+            "<b>Tip:</b> the shapefile's geometry/extent should overlap the "
+            "dataset's region to avoid empty or invalid clips."
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet(f"color: {C['text2']}; font-size: 15px;")
+        lay.addWidget(info)
+
+        if not CLIPPING_AVAILABLE:
+            warn = QLabel(
+                "⚠ Clipping requires the 'geopandas', 'xarray' and "
+                "'rioxarray' packages, which aren't installed. "
+                "Run:  pip install geopandas xarray rioxarray\n"
+                "You can still download full files."
+            )
+            warn.setWordWrap(True)
+            warn.setStyleSheet(
+                f"color: {C['red']}; font-size: 14px; padding: 6px;")
+            lay.addWidget(warn)
+
+        self.path_lbl = label("No shapefile selected.", C["text3"], 14)
+        self.path_lbl.setWordWrap(True)
+        lay.addWidget(self.path_lbl)
+
+        lay.addWidget(hline())
+
+        btn_row = QHBoxLayout()
+        cancel_btn = secondary_btn("Cancel")
+        cancel_btn.clicked.connect(self._on_cancel)
+        skip_btn = secondary_btn("Skip — Full Files")
+        skip_btn.clicked.connect(self._on_skip)
+        browse_btn = primary_btn("📁  Choose Shapefile…")
+        browse_btn.setEnabled(CLIPPING_AVAILABLE)
+        browse_btn.clicked.connect(self._on_browse)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(skip_btn)
+        btn_row.addWidget(browse_btn)
+        lay.addLayout(btn_row)
+
+    def _on_cancel(self):
+        self.cancelled = True
+        self.reject()
+
+    def _on_skip(self):
+        self.shapefile_path = None
+        self.accept()
+
+    def _on_browse(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Shapefile", "", "Shapefiles (*.shp)")
+        if not path:
+            return
+        try:
+            gdf = gpd.read_file(path)
+            if gdf.empty:
+                raise ValueError("Shapefile contains no features.")
+            if gdf.crs is None:
+                QMessageBox.warning(
+                    self, "No CRS Found",
+                    "This shapefile has no coordinate reference system "
+                    "defined. Assuming WGS84 (EPSG:4326) — the same "
+                    "geographic system used by the NEX-GDDP-CMIP6 grid. "
+                    "If that's wrong, the clip may fail or return no data."
+                )
+                gdf = gdf.set_crs("EPSG:4326")
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Shapefile Error", f"Could not read shapefile:\n{e}")
+            return
+
+        self.shapefile_path = path
+        self.clip_geometries = list(gdf.geometry)
+        self.clip_crs = gdf.crs
+        self.path_lbl.setText(
+            f"✓  {os.path.basename(path)}  —  {len(gdf)} feature(s), "
+            f"CRS: {gdf.crs}"
+        )
+        self.path_lbl.setStyleSheet(
+            f"color: {C['green']}; font-size: 14px; font-weight: bold;")
+        self.accept()
+
+
 class FilterDownloadPage(QWidget):
     go_back = pyqtSignal()
 
@@ -1251,6 +1447,14 @@ class FilterDownloadPage(QWidget):
     def _start_download(self):
         if not self._files:
             return
+
+        clip_dlg = ClipDialog(self)
+        clip_dlg.exec()
+        if clip_dlg.cancelled:
+            return
+        clip_geom = clip_dlg.clip_geometries
+        clip_crs = clip_dlg.clip_crs
+
         tasks = [
             (f["url"],
              os.path.join(self._out_dir, f["model"], f["scenario"], f["variable"], f["file"]))
@@ -1263,10 +1467,15 @@ class FilterDownloadPage(QWidget):
         self.dl_btn.setEnabled(False)
         self.stop_btn.setVisible(True)
         self.back_btn.setEnabled(False)
+        if clip_geom is not None:
+            self.log.append(
+                f"\n📐 Clipping enabled — files will be clipped to "
+                f"'{os.path.basename(clip_dlg.shapefile_path)}' before saving.")
         self.log.append(
             f"\nStarting download of {len(tasks)} files → {self._out_dir}\n")
 
-        self._thread = DownloadThread(tasks, self.workers_spin.value())
+        self._thread = DownloadThread(
+            tasks, self.workers_spin.value(), clip_geom, clip_crs)
         self._thread.file_done.connect(self._on_file_done)
         self._thread.log.connect(self.log.append)
         self._thread.finished.connect(self._on_dl_done)
