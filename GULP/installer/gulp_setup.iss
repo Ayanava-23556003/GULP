@@ -73,6 +73,13 @@ Source: "..\CHANGELOG.md";         DestDir: "{app}";        Flags: ignoreversion
 Source: "..\assets\gulp.ico";      DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "..\assets\gulp.png";      DestDir: "{app}\assets"; Flags: ignoreversion
 
+; Microsoft Visual C++ Redistributable (x64) — required by PyQt6's
+; compiled Qt6 DLLs. Bundled so installs work fully offline / without
+; relying on a download succeeding at install time. Download once from:
+; https://aka.ms/vs/17/release/vc_redist.x64.exe and place it at
+; ..\vendor\vc_redist.x64.exe before building.
+Source: "..\vendor\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; AfterInstall: InstallVCRedist
+
 [Icons]
 ; Start menu
 Name: "{group}\{#AppName}";          Filename: "{app}\run_gulp_windows.bat"; IconFilename: "{app}\assets\gulp.ico"; WorkingDir: "{app}"
@@ -83,14 +90,9 @@ Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}";    Filename: "{app}\run_gulp_windows.bat"; IconFilename: "{app}\assets\gulp.ico"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-; Install Python dependencies (requests, PyQt6) after setup
-Filename: "cmd.exe"; \
-  Parameters: "/c python -m pip install -r ""{app}\requirements.txt"" --quiet"; \
-  Description: "Install Python dependencies (PyQt6, requests)"; \
-  Flags: runhidden waituntilterminated; \
-  StatusMsg: "Installing Python dependencies (PyQt6, requests)..."
-
-; Launch GULP
+; Launch GULP. run_gulp_windows.bat handles installing Python itself (if
+; missing) and the script auto-installs any missing pip packages — no
+; separate pip-install [Run] step is needed here.
 Filename: "{app}\run_gulp_windows.bat"; \
   Description: "Launch GULP"; \
   Flags: postinstall nowait skipifsilent
@@ -106,7 +108,28 @@ Type: dirifempty; Name: "{app}\NEX_GDDP"
 
 [Code]
 // -----------------------------------------------------------
-// Check that Python 3.9+ is installed before proceeding
+// Install the bundled VC++ Redistributable (x64) silently.
+// Safe to run even if already installed — it's a fast no-op.
+// -----------------------------------------------------------
+procedure InstallVCRedist;
+var
+  ResultCode: Integer;
+begin
+  if not Exec(ExpandConstant('{tmp}\vc_redist.x64.exe'), '/install /quiet /norestart', '',
+              SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    MsgBox(
+      'Could not run the Visual C++ Redistributable installer automatically.'
+      + #13#10
+      + 'If GULP fails to launch with a "DLL load failed" error, install it '
+      + 'manually from: https://aka.ms/vs/17/release/vc_redist.x64.exe',
+      mbInformation, MB_OK);
+end;
+
+// -----------------------------------------------------------
+// Check whether Python 3.9+ is already installed. This is informational
+// only — it does NOT block setup, because run_gulp_windows.bat will
+// install Python itself (per-user, no admin needed) on first launch if
+// it's missing.
 // -----------------------------------------------------------
 function IsPythonInstalled(): Boolean;
 var
@@ -124,15 +147,13 @@ begin
   if not IsPythonInstalled() then
   begin
     MsgBox(
-      'Python 3.9 or later is required by GULP but was not found on this system.'
+      'Python was not found on this system.'
       + #13#10#13#10
-      + 'Please install Python from https://www.python.org/downloads/'
-      + #13#10
-      + 'and make sure "Add Python to PATH" is checked during installation.'
+      + 'That''s OK — GULP will install Python automatically (no admin '
+      + 'rights needed) the first time you launch it from the Start Menu.'
       + #13#10#13#10
-      + 'Setup will now exit.',
-      mbError, MB_OK);
-    Result := False;
-  end else
-    Result := True;
+      + 'This requires an internet connection on first launch.',
+      mbInformation, MB_OK);
+  end;
+  Result := True;
 end;
