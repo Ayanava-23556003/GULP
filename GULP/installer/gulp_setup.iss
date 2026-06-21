@@ -9,7 +9,7 @@
 #define AppVersion   "1.0.0"
 #define AppPublisher "Ayanava Poddar"
 #define AppURL       "https://github.com/Ayanava-23556003/GULP"
-#define AppExeName   "gulp.bat"
+#define AppExeName   "run_gulp_windows.bat"
 
 [Setup]
 AppId={{A3F7C2D1-88BE-4E6A-B012-F1234567890A}
@@ -65,7 +65,7 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 Source: "..\src\gulp.py";          DestDir: "{app}\src";    Flags: ignoreversion
 Source: "..\src\gulp_gui.py";      DestDir: "{app}\src";    Flags: ignoreversion
 Source: "..\requirements.txt";     DestDir: "{app}";        Flags: ignoreversion
-Source: "..\gulp.bat";             DestDir: "{app}";        Flags: ignoreversion
+Source: "..\run_gulp_windows.bat";             DestDir: "{app}";        Flags: ignoreversion
 Source: "..\README.md";            DestDir: "{app}";        Flags: ignoreversion isreadme
 Source: "..\CHANGELOG.md";         DestDir: "{app}";        Flags: ignoreversion
 
@@ -75,12 +75,12 @@ Source: "..\assets\gulp.png";      DestDir: "{app}\assets"; Flags: ignoreversion
 
 [Icons]
 ; Start menu
-Name: "{group}\{#AppName}";          Filename: "{app}\gulp.bat"; IconFilename: "{app}\assets\gulp.ico"; WorkingDir: "{app}"
+Name: "{group}\{#AppName}";          Filename: "{app}\run_gulp_windows.bat"; IconFilename: "{app}\assets\gulp.ico"; WorkingDir: "{app}"
 Name: "{group}\README";              Filename: "{app}\README.md"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
 
 ; Desktop shortcut (optional)
-Name: "{autodesktop}\{#AppName}";    Filename: "{app}\gulp.bat"; IconFilename: "{app}\assets\gulp.ico"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\{#AppName}";    Filename: "{app}\run_gulp_windows.bat"; IconFilename: "{app}\assets\gulp.ico"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 ; Install Python dependencies (requests, PyQt6) after setup
@@ -91,7 +91,7 @@ Filename: "cmd.exe"; \
   StatusMsg: "Installing Python dependencies (PyQt6, requests)..."
 
 ; Launch GULP
-Filename: "{app}\gulp.bat"; \
+Filename: "{app}\run_gulp_windows.bat"; \
   Description: "Launch GULP"; \
   Flags: postinstall nowait skipifsilent
 
